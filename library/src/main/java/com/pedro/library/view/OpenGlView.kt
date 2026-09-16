@@ -249,10 +249,16 @@ open class OpenGlView : SurfaceView, GlInterface, OnFrameAvailableListener, Surf
             }
         }
 
-        if (surfaceManagerEncoder.isReady || surfaceManagerEncoderRecord.isReady || surfaceManagerPhoto.isReady) {
+        // read once: takePhotoCallback is written from the caller thread
+        val photoCallback = takePhotoCallback
+        val renderEncoder = surfaceManagerEncoder.isReady && mainRender.isReady() && !limitFps
+        val renderRecord = surfaceManagerEncoderRecord.isReady && mainRender.isReady() && !limitFps
+        val renderPhoto = photoCallback != null && surfaceManagerPhoto.isReady && mainRender.isReady()
+        // draw offscreen only if a surface below reads it this frame
+        if (renderEncoder || renderRecord || renderPhoto) {
             mainRender.drawFilters(false)
         }
-        if (surfaceManagerEncoder.isReady && mainRender.isReady() && !limitFps) {
+        if (renderEncoder) {
             val w = if (muteVideo) 0 else encoderWidth
             val h = if (muteVideo) 0 else encoderHeight
             if (surfaceManagerEncoder.makeCurrent()) {
@@ -265,7 +271,7 @@ open class OpenGlView : SurfaceView, GlInterface, OnFrameAvailableListener, Surf
             }
         }
         // render VideoEncoder (record if the resolution is different than stream)
-        if (surfaceManagerEncoderRecord.isReady && mainRender.isReady() && !limitFps) {
+        if (renderRecord) {
             val w = if (muteVideo) 0 else encoderRecordWidth
             val h = if (muteVideo) 0 else encoderRecordHeight
             if (surfaceManagerEncoderRecord.makeCurrent()) {
@@ -274,11 +280,12 @@ open class OpenGlView : SurfaceView, GlInterface, OnFrameAvailableListener, Surf
                 surfaceManagerEncoderRecord.swapBuffer()
             }
         }
-        if (takePhotoCallback != null && surfaceManagerPhoto.isReady && mainRender.isReady()) {
+        if (renderPhoto) {
             if (surfaceManagerPhoto.makeCurrent()) {
                 mainRender.drawScreen(encoderWidth, encoderHeight, aspectRatioMode, streamRotation, isStreamVerticalFlip, isStreamHorizontalFlip, null)
-                takePhotoCallback?.onTakePhoto(GlUtil.getBitmap(encoderWidth, encoderHeight))
-                takePhotoCallback = null
+                photoCallback?.onTakePhoto(GlUtil.getBitmap(encoderWidth, encoderHeight))
+                // keep a request that arrived while this frame was drawing
+                if (takePhotoCallback === photoCallback) takePhotoCallback = null
                 surfaceManagerPhoto.swapBuffer()
             }
         }
